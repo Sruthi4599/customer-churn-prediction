@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 # ================= SHAP SETUP =================
 shap.initjs()
 
-# ================= LOAD TRAINED ARTIFACTS =================
+# ================= LOAD ARTIFACTS =================
 model = joblib.load("model.pkl")
 encoder = joblib.load("encoder.pkl")
 scaler = joblib.load("scaler.pkl")
@@ -18,40 +18,48 @@ cat_cols = joblib.load("cat_cols.pkl")
 feature_names = joblib.load("feature_names.pkl")
 THRESHOLD = joblib.load("threshold.pkl")
 
-# ================= SESSION STATE INIT =================
+# ================= HUMAN LABELS =================
+feature_labels = {
+    "Contract_One Year": "contract duration",
+    "Contract_Two Year": "long-term contract",
+    "Internet Service_Fiber optic": "fiber internet service",
+    "Internet Type_Fiber Optic": "fiber internet service",
+    "Paperless Billing_Yes": "paperless billing usage",
+    "Tenure in Months": "customer tenure",
+    "Monthly Charge": "monthly subscription cost",
+    "Payment Method_Electronic check": "payment method"
+}
+
+# ================= ACTIONS =================
+feature_actions = {
+    "Contract_One Year": "Offer discount for longer contracts",
+    "Contract_Two Year": "Encourage multi-year subscription benefits",
+    "Internet Service_Fiber optic": "Improve service quality assurance",
+    "Payment Method_Electronic check": "Encourage automatic payments",
+    "Tenure in Months": "Provide loyalty rewards"
+}
+
+# ================= SESSION =================
 if "predicted" not in st.session_state:
     st.session_state.predicted = False
     st.session_state.prob = None
     st.session_state.X_final = None
 
-# ================= PAGE SETUP =================
-st.set_page_config(
-    page_title="Customer Churn Prediction",
-    layout="wide"
-)
+# ================= PAGE =================
+st.set_page_config(page_title="Customer Churn Prediction", layout="wide")
 
 st.title("📉 Customer Churn Prediction System")
+
 st.write(
-    "This application predicts customer churn probability "
-    "and explains the prediction using SHAP."
+    "Predict customer churn probability and understand "
+    "the business reasoning behind the prediction."
 )
 
-# ================= USER INPUT =================
-st.header("🧾 Customer Information")
+# ================= INPUT =================
+st.header("Customer Information")
 
-tenure = st.number_input(
-    "Tenure in Months",
-    min_value=0,
-    max_value=100,
-    value=12
-)
-
-monthly_charge = st.number_input(
-    "Monthly Charge",
-    min_value=0.0,
-    max_value=500.0,
-    value=70.0
-)
+tenure = st.number_input("Tenure in Months", 0, 100, 12)
+monthly_charge = st.number_input("Monthly Charge", 0.0, 500.0, 70.0)
 
 contract = st.selectbox(
     "Contract",
@@ -73,10 +81,9 @@ internet = st.selectbox(
     ["DSL", "Fiber optic", "No"]
 )
 
-# ================= BUILD INPUT DATA =================
+# ================= BUILD INPUT =================
 input_data = {}
 
-# Numerical features
 for col in num_cols:
     if col == "Tenure in Months":
         input_data[col] = tenure
@@ -85,7 +92,6 @@ for col in num_cols:
     else:
         input_data[col] = 0
 
-# Categorical features
 for col in cat_cols:
     if col == "Contract":
         input_data[col] = contract
@@ -106,7 +112,7 @@ X_cat = encoder.transform(input_df[cat_cols])
 X_final = np.hstack([X_num, X_cat])
 X_final = imputer.transform(X_final)
 
-# ================= PREDICT BUTTON =================
+# ================= PREDICT =================
 if st.button("🔍 Predict Churn"):
     prob = model.predict_proba(X_final)[0, 1]
 
@@ -114,13 +120,12 @@ if st.button("🔍 Predict Churn"):
     st.session_state.prob = prob
     st.session_state.X_final = X_final
 
-# ================= SHOW RESULTS =================
+# ================= RESULT =================
 if st.session_state.predicted:
 
     prob = st.session_state.prob
     X_final = st.session_state.X_final
 
-    # Risk bucket
     if prob >= 0.7:
         risk = "High"
     elif prob >= 0.4:
@@ -128,37 +133,30 @@ if st.session_state.predicted:
     else:
         risk = "Low"
 
-    st.subheader("📊 Prediction Result")
+    st.subheader("Prediction Result")
     st.metric("Churn Probability", f"{prob:.2f}")
 
     if prob >= THRESHOLD:
-        st.warning(f"⚠️ {risk} Risk of Churn (Action Required)")
-        st.write("### ✅ Suggested Retention Actions")
-        st.write("- Offer personalized discount")
-        st.write("- Promote long-term contract")
-        st.write("- Schedule retention call")
+        st.warning(f"⚠️ {risk} Risk of Churn")
     else:
-        st.success(f"✅ {risk} Risk (No Immediate Action Required)")
+        st.success(f"✅ {risk} Risk")
 
-    # ================= SHAP EXPLAINABILITY =================
     st.markdown("---")
 
-    if st.checkbox("🔍 Explain Prediction (SHAP)"):
+    # ================= SHAP =================
+    if st.checkbox("🔍 Explain Prediction"):
 
         explainer = shap.TreeExplainer(model)
         shap_values = explainer.shap_values(X_final)
 
-        # ----- SAME LOGIC AS YOUR JUPYTER NOTEBOOK -----
         if isinstance(shap_values, list):
-            shap_single = shap_values[1][0]          # class 1 (churn)
+            shap_single = shap_values[1][0]
             base_val = explainer.expected_value[1]
         else:
             shap_single = shap_values[0, :, 1]
             base_val = explainer.expected_value
 
         base_val = float(np.array(base_val).flatten()[0])
-
-        st.subheader("📌 Why this customer may churn")
 
         single_exp = shap.Explanation(
             values=shap_single,
@@ -167,7 +165,82 @@ if st.session_state.predicted:
             feature_names=feature_names
         )
 
+        st.subheader("Model Explanation")
+
         fig = plt.figure()
         shap.plots.waterfall(single_exp, show=False)
         st.pyplot(fig)
         plt.clf()
+
+        # ================= DATAFRAME =================
+        shap_df = pd.DataFrame({
+            "feature": feature_names,
+            "impact": shap_single
+        })
+
+        top_features = shap_df.reindex(
+            shap_df.impact.abs().sort_values(ascending=False).index
+        ).head(3)
+
+        # ================= WATERFALL STORY =================
+        st.subheader("Prediction Summary")
+
+        def readable(name):
+            return feature_labels.get(
+                name,
+                name.replace("_", " ").lower()
+            )
+
+        increase_driver = shap_df.sort_values(
+            by="impact", ascending=False
+        ).iloc[0]
+
+        decrease_driver = shap_df.sort_values(
+            by="impact"
+        ).iloc[0]
+
+        summary = f"""
+The model began with an average churn expectation and adjusted
+the prediction based on customer characteristics.
+
+Churn risk increased mainly due to **{readable(increase_driver['feature'])}**,
+while **{readable(decrease_driver['feature'])}**
+helped reduce the overall churn probability.
+
+Overall, this customer falls under **{risk} churn risk**
+with a predicted probability of **{prob:.2f}**.
+"""
+
+        st.info(summary)
+
+        # ================= REASONS =================
+        st.subheader("Key Drivers")
+
+        for _, row in top_features.iterrows():
+
+            label = readable(row["feature"])
+
+            if row["impact"] > 0:
+                st.write(
+                    f"🔴 Customer's {label} contributed to higher predicted churn risk"
+                )
+            else:
+                st.write(
+                    f"🟢 Customer's {label} contributed to lower predicted churn risk"
+                )
+
+        # ================= ACTIONS =================
+        st.subheader("Recommended Actions")
+
+        actions = []
+
+        for feature in top_features["feature"]:
+            if feature in feature_actions:
+                actions.append("✅ " + feature_actions[feature])
+            else:
+                actions.append(
+                    f"✅ Review engagement related to {readable(feature)}"
+                )
+
+        for act in list(set(actions)):
+            st.write(act)
