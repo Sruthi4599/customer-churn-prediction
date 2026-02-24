@@ -6,7 +6,6 @@ import shap
 import matplotlib.pyplot as plt
 
 # ================= SHAP SETUP =================
-shap.initjs()
 
 # ================= LOAD ARTIFACTS =================
 model = joblib.load("model.pkl")
